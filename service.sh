@@ -1,4 +1,4 @@
 #! /bin/bash 
 
 . ./venv/bin/activate 
-python3 ./blinkd.py 
+exec python3 ./blinkd.py 
