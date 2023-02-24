@@ -8,10 +8,11 @@ A silly little daemon to control my PC with OpenRGB
 
 import asyncio
 import dbus_next 
-import subprocess
 import os 
 import psutil
 import openrgb
+import signal
+import subprocess
 
 from dbus_next.aio import MessageBus
 from openrgb.utils import RGBColor, DeviceType
@@ -20,46 +21,65 @@ from openrgb.utils import RGBColor, DeviceType
 async def main():
     """Run the daemon. Block."""
 
+    rgbclient = None 
+    infd = None
+    openrgb_s = None 
+    do_anim = True
+
+    def on_sigint():
+        nonlocal rgbclient, infd, openrgb_s, do_anim
+        print("Receieved INT, stopping LED services.")
+        do_anim = False
+        if rgbclient is not None:
+            rgbclient.disconnect()
+        if openrgb_s is not None:
+            openrgb_s.terminate()
+        if infd is not None:
+            os.close(infd)
+
+    asyncio.get_running_loop().add_signal_handler(signal.SIGINT, on_sigint)
+
     bus = await MessageBus(bus_type=dbus_next.constants.BusType.SYSTEM, negotiate_unix_fd=True).connect()
     introspection = await bus.introspect('org.freedesktop.login1', '/org/freedesktop/login1')
     obj = bus.get_proxy_object('org.freedesktop.login1', '/org/freedesktop/login1', introspection)
     manager = obj.get_interface('org.freedesktop.login1.Manager')
-
-    infd = None
 
     async def inhibit_sleep():
         nonlocal infd
         infd = await manager.call_inhibit("sleep", "RGB", "Wait a sec while I turn off the lights...", "delay")
 
     openrgb_s = await asyncio.create_subprocess_shell(
-        "./OpenRGB/openrgb -v --server --server-port 6742 --localconfig",
+        "exec ./OpenRGB/openrgb -v --server --server-port 6742 --localconfig",
+        stdin=asyncio.subprocess.DEVNULL,
+        start_new_session=True, # Don't listen to my signals
     )
 
     await asyncio.sleep(5)
     rgbclient = openrgb.OpenRGBClient()
-    
+
     # Listen for sleep/run
     def on_sleep_run(sleep_not_run):
         nonlocal infd
         if sleep_not_run:
             print("Requested sleep state...")
-            subprocess.run('./OpenRGB/openrgb --localconfig --noautoconnect -p sleeping', shell=True)
+            subprocess.run('exec ./OpenRGB/openrgb --localconfig --noautoconnect -p sleeping', shell=True)
             os.close(infd)
             infd = None
         else:
             print("Requested run state...")
-            subprocess.run('./OpenRGB/openrgb --localconfig --noautoconnect -p running', shell=True)
+            subprocess.run('exec ./OpenRGB/openrgb --localconfig --noautoconnect -p running', shell=True)
             if infd == None:
                 asyncio.create_task(inhibit_sleep())
-
+        
     on_sleep_run(False)
     manager.on_prepare_for_sleep(on_sleep_run)
 
     async def frame():
-        avg = [0] * 20
+        nonlocal do_anim
+        avg = [0] * 3
         idx = 0
         motherboard = rgbclient.get_devices_by_name('ASUS ROG STRIX X670E-E GAMING WIFI')[0]        
-        while True:
+        while do_anim:
             avg[idx] = psutil.cpu_percent() 
             idx = (idx + 1) % len(avg)
             cpu_percent = sum(avg) / len(avg) 
@@ -76,10 +96,12 @@ async def main():
 
             motherboard.set_color(RGBColor.fromHSV(hue, sat, val), fast=True)
             await asyncio.sleep(0.1)
+        print("Finishing animation loop.")
 
     asyncio.create_task(frame())
 
     await openrgb_s.wait()
+    print("OpenRGB exited with value:", openrgb_s.returncode)
     exit(openrgb_s.returncode)
 
 
