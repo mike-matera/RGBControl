@@ -1,0 +1,6 @@
+[submodule "OpenRGB"]
+	path = OpenRGB
+	url = https://gitlab.com/CalcProgrammer1/OpenRGB.git
+[submodule "openrgb-python"]
+	path = openrgb-python
+	url = https://github.com/jath03/openrgb-python.git
