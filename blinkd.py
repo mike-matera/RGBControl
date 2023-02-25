@@ -26,9 +26,9 @@ async def main():
     openrgb_s = None 
     do_anim = True
 
-    def on_sigint():
+    def do_stop():
         nonlocal rgbclient, infd, openrgb_s, do_anim
-        print("Receieved INT, stopping LED services.")
+        print("Receieved signal, stopping LED services.")
         do_anim = False
         if rgbclient is not None:
             rgbclient.disconnect()
@@ -37,7 +37,8 @@ async def main():
         if infd is not None:
             os.close(infd)
 
-    asyncio.get_running_loop().add_signal_handler(signal.SIGINT, on_sigint)
+    asyncio.get_running_loop().add_signal_handler(signal.SIGINT, do_stop)
+    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, do_stop)
 
     bus = await MessageBus(bus_type=dbus_next.constants.BusType.SYSTEM, negotiate_unix_fd=True).connect()
     introspection = await bus.introspect('org.freedesktop.login1', '/org/freedesktop/login1')
