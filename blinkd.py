@@ -76,26 +76,84 @@ async def main():
     manager.on_prepare_for_sleep(on_sleep_run)
 
     async def frame():
-        nonlocal do_anim
-        avg = [0] * 3
+
+        # Thanks: http://www.vendian.org/mncharity/dir3/blackbody/
+        k_to_rgb = {
+            1000: "#ff3800", 
+            1200: "#ff5300", 
+            1400: "#ff6500", 
+            1600: "#ff7300", 
+            1800: "#ff7e00", 
+            2000: "#ff8912", 
+            2200: "#ff932c", 
+            2400: "#ff9d3f", 
+            2600: "#ffa54f", 
+            2800: "#ffad5e", 
+            3000: "#ffb46b", 
+            3200: "#ffbb78", 
+            3400: "#ffc184", 
+            3600: "#ffc78f", 
+            3800: "#ffcc99", 
+            4000: "#ffd1a3", 
+            4200: "#ffd5ad", 
+            4400: "#ffd9b6", 
+            4600: "#ffddbe", 
+            4800: "#ffe1c6", 
+            5000: "#ffe4ce", 
+            5200: "#ffe8d5", 
+            5400: "#ffebdc", 
+            5600: "#ffeee3", 
+            5800: "#fff0e9", 
+            6000: "#fff3ef", 
+            6200: "#fff5f5", 
+            6400: "#fff8fb", 
+            6600: "#fef9ff", 
+            6800: "#f9f6ff", 
+            7000: "#f5f3ff", 
+            7200: "#f0f1ff", 
+            7400: "#edefff", 
+            7600: "#e9edff", 
+            7800: "#e6ebff", 
+        }
+        
+        def to_rgb(st):
+            color = int(st[1:], base=16)
+            return (color & 0xff0000) >> 16, (color & 0xff00) >> 8, (color & 0xff) 
+
+        def interp(a, b, s=0.5):
+            a = to_rgb(a)
+            b = to_rgb(b)
+            return (
+                round(a[0] + s * (b[0] - a[0])),
+                round(a[1] + s * (b[1] - a[1])),
+                round(a[2] + s * (b[2] - a[2])),
+            )
+
+        avg = [0] * 60
         idx = 0
         motherboard = rgbclient.get_devices_by_name('ASUS ROG STRIX X670E-E GAMING WIFI')[0]        
+        nonlocal do_anim
         while do_anim:
             avg[idx] = psutil.cpu_percent() 
             idx = (idx + 1) % len(avg)
-            cpu_percent = sum(avg) / len(avg) 
+            cpu_percent = round(sum(avg) / len(avg)) 
 
-            # temperature == busy 
-            #hue = 236 - round(2.36 * cpu_percent)
-            # sat = 100 
-            # val = 100 
-            
-            # red to white! 
-            hue = int(0 + (cpu_percent / 15))
-            sat = int(min(100, 190 - cpu_percent))
-            val = int(min(100, 10 + cpu_percent))
+            if cpu_percent <= 25:
+                # Warm up to orange
+                color = interp("#770000", k_to_rgb[1000], cpu_percent / 25)
+            else:
+                # Find a color
+                color = "#ff3800"
+                last = color
+                for k in sorted(k_to_rgb):
+                    if (cpu_percent - 25) <= ((k / 200) / len(k_to_rgb)) * 100:
+                        color = k_to_rgb[k]
+                        break
+                    last = k_to_rgb[k]
+                color = interp(last, color)
 
-            motherboard.set_color(RGBColor.fromHSV(hue, sat, val), fast=True)
+            #print("DEBUG:", cpu_percent, color)
+            motherboard.set_color(RGBColor(red=color[0], green=color[1], blue=color[2]), fast=True)
             await asyncio.sleep(0.1)
         print("Finishing animation loop.")
 
